@@ -125,13 +125,10 @@ router.get('/doctor-stats', authenticate, async (req, res) => {
           (a) => a.status === 'CANCELLED'
         )?._count.id || 0;
 
-      const queueCount =
-        queueStats.find(
-          (q) => q.doctorId === doc.id
-        )?._count.id || 0;
+      const todayQueueSize =
+        queueStats.find((q) => q.doctorId === doc.id)?._count.id || 0;
 
-      const revenue =
-        completedAppointments * doc.consultationFee;
+     const revenue = completedAppointments * (doc.consultationFee || 0);
         return {
         id: doc.id,
         name: doc.name,
@@ -142,7 +139,7 @@ router.get('/doctor-stats', authenticate, async (req, res) => {
         completedAppointments,
         cancelledAppointments,
 
-        todayQueueSize: queueCount,
+        todayQueueSize,
 
         revenue,
       };
@@ -156,7 +153,7 @@ router.get('/doctor-stats', authenticate, async (req, res) => {
       data: reportData,
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to generate report', details: error.message });
+    res.status(500).json({ success: false, error: 'Failed to generate report', details: error.message });
   }
 });
 

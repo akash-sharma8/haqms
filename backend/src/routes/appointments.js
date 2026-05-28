@@ -68,9 +68,9 @@ router.get('/', authenticate, async (req, res) => {
     //     },
     //   },
     // });
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
-    const skip = (page - 1) * limit;
+     const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
+    const skip  = (page - 1) * limit;
 
     const where = {
       ...(doctorId && { doctorId }),
@@ -90,30 +90,13 @@ router.get('/', authenticate, async (req, res) => {
         },
 
         include: {
-          patient: {
-            select: {
-              id: true,
-              name: true,
-              phoneNumber: true,
-              age: true,
-              medicalHistory: true,
-            },
-          },
-
-          doctor: {
-            select: {
-              id: true,
-              name: true,
-              specialization: true,
-            },
-          },
+          patient: { select: { id: true, name: true, phoneNumber: true, age: true, medicalHistory: true } },
+          doctor:  { select: { id: true, name: true, specialization: true } },
         },
       }),
-
       prisma.appointment.count({ where }),
     ]);
-
-
+ 
     res.json({
       success: true,
       data: appointments,
@@ -125,7 +108,7 @@ router.get('/', authenticate, async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to retrieve appointments' });
+    res.status(500).json({ success: false, error: 'Failed to retrieve appointments' });
   }
 });
 
@@ -139,17 +122,19 @@ router.post('/', authenticate, async (req, res) => {
     const { patientId, doctorId, appointmentDate, reason } = req.body;
 
     if (!patientId || !doctorId || !appointmentDate) {
-      return res.status(400).json({ error: 'Patient, Doctor, and Appointment Date are required.' });
+      return res.status(400).json({ success: false, error: 'Patient, Doctor, and Appointment Date are required.' });
     }
 
     const appDate = new Date(appointmentDate);
     if (isNaN(appDate.getTime())) {
       return res.status(400).json({
+        success: false,
         error: 'Invalid appointment date',
       });
     }
-    if (appDate < new Date()) {
+    if (appDate <= new Date()) {
       return res.status(400).json({
+        success: false,
         error: 'Appointment date must be in the future',
       });
     }
@@ -240,6 +225,10 @@ router.post('/', authenticate, async (req, res) => {
 router.patch('/:id', authenticate, async (req, res) => {
   try {
     const { status } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, error: 'Status is required' });
+    }
+ 
     const allowedStatuses = [
       'PENDING',
       'CONFIRMED',
@@ -247,14 +236,10 @@ router.patch('/:id', authenticate, async (req, res) => {
       'CANCELLED',
     ];
 
-    if (!status) {
-      return res.status(400).json({
-        error: 'Status is required',
-      });
-    }
 
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
+        success: false,
         error: 'Invalid status',
       });
     }
@@ -267,6 +252,7 @@ router.patch('/:id', authenticate, async (req, res) => {
 
     if (!appointment) {
       return res.status(404).json({
+        success: false,
         error: 'Appointment not found',
       });
     }

@@ -10,8 +10,8 @@ const prisma = new PrismaClient();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { doctorId, status } = req.query;
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
     const skip = (page - 1) * limit;
     const where = {
       ...(doctorId && { doctorId }),
@@ -135,16 +135,19 @@ router.post('/checkin', authenticate, async (req, res) => {
 
     if (!patient) {
       return res.status(404).json({
+        success: false,
         error: 'Patient not found',
       });
     }
 
     if (!doctor) {
       return res.status(404).json({
+        success: false,
         error: 'Doctor not found',
       });
     }
-
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     const token = await prisma.$transaction(
       async (tx) => {
@@ -224,6 +227,10 @@ router.patch('/:id', authenticate, async (req, res) => {
       return res.status(400).json({
         error: 'Invalid status',
       });
+    }
+    const existing = await prisma.queueToken.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Queue token not found' });
     }
 
     const updatedToken = await prisma.queueToken.update({

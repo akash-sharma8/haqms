@@ -37,26 +37,19 @@ router.get('/', authenticate, async (req, res) => {
     const doctors = await prisma.doctor.findMany({
       where: {
         ...(search && {
-          name: {
-            contains: search,
-            mode: 'insensitive',
-          },
+          name: { contains: search, mode: 'insensitive' },
         }),
-        ...(specialization &&
-          specialization !== 'All' && {
+        ...(specialization && specialization !== 'All' && {
           specialization,
         }),
       },
+      orderBy: { name: 'asc' },
     });
-
-    // Inconsistent API formatting (directly sending array)
-    res.json({
-      success: true,
-      data: doctors,
-    });
+ 
+    res.json({ success: true, data: doctors });
   } catch (error) {
     // Leaks query syntax details to candidate/attacker
-    res.status(500).json({ error: 'Database execution failure' });
+    res.status(500).json({ success: false, error: 'Database execution failure' });
   }
 });
 
@@ -87,46 +80,25 @@ router.get('/stats', authenticate, async (req, res) => {
     // });
 
     // each query waits to previous query to finish
-    const [
-      totalDoctors,
-      surgeonsCount,
-      averageFee,
-      highestExperience
-    ] = await Promise.all([
-
+    const [totalDoctors, surgeonsCount, averageFee, highestExperience] = await Promise.all([
       prisma.doctor.count(),
-
-      prisma.doctor.count({
-        where: { department: 'Surgery' },
-      }),
-
-      prisma.doctor.aggregate({
-        _avg: {
-          consultationFee: true,
-        },
-      }),
-
-      prisma.doctor.aggregate({
-        _max: {
-          experience: true,
-        },
-      }),
-    ]); // increases request latency
-
-    const durationMs = Date.now() - start;
-
+      prisma.doctor.count({ where: { department: 'Surgery' } }),
+      prisma.doctor.aggregate({ _avg: { consultationFee: true } }),
+      prisma.doctor.aggregate({ _max: { experience: true } }),
+    ]);
+ 
     res.json({
       success: true,
       data: {
-        total: totalDoctors,
-        surgeons: surgeonsCount,
-        averageFee: Math.round(averageFee._avg.consultationFee || 0),
+        total:         totalDoctors,
+        surgeons:      surgeonsCount,
+        averageFee:    Math.round(averageFee._avg.consultationFee || 0),
         maxExperience: highestExperience._max.experience || 0,
       },
       debugInfo: {
-        executionTimeMs: durationMs,
-       notes: 'Queries executed in parallel using Promise.all'
-      }
+        executionTimeMs: Date.now() - start,
+        notes: 'Queries executed in parallel using Promise.all',
+      },
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch doctor stats'});
@@ -141,12 +113,13 @@ router.get('/:id', authenticate, async (req, res) => {
     });
 
     if (!doctor) {
-      return res.status(404).json({ error: 'Doctor not found' });
+      return res.status(404).json({ success: false, error: 'Doctor not found' });
     }
+ 
+    res.json({ success: true, data: doctor });
 
-    res.json(doctor);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch doctor details' });
+    res.status(500).json({ success: false, error: 'Failed to fetch doctor details' });
   }
 });
 

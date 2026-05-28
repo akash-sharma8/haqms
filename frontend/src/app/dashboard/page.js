@@ -73,6 +73,7 @@ export default function Dashboard() {
   const [adminReportData, setAdminReportData] = useState(null);
   const [adminReportLoading, setAdminReportLoading] = useState(false);
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
+  const [doctorsLoadError, setDoctorsLoadError] = useState(false);
 
   // FIX 1 (continued): activeTab now correctly derives from user.role on first render.
   // The old code initialized to 'appointments' unconditionally because `user` is null
@@ -128,8 +129,8 @@ export default function Dashboard() {
     } finally {
       setPatientsLoading(false);
     }
-  // FIX 3 (continued): Added token, API_BASE_URL to deps so the callback always closes
-  // over the current token and not a stale null value from first render.
+    // FIX 3 (continued): Added token, API_BASE_URL to deps so the callback always closes
+    // over the current token and not a stale null value from first render.
   }, [token, API_BASE_URL, patientSearch, patientGender]);
 
   // FIX 4: Debounce patient search to avoid firing an API call on every single keystroke.
@@ -143,18 +144,27 @@ export default function Dashboard() {
       return () => clearTimeout(debounceTimer);
     }
   }, [patientSearch, patientGender, fetchPatients, user?.role]);
-
   // Fetch Doctors for booking drop-down
   const fetchDoctorsDropdown = useCallback(async () => {
     if (!token) return;
+    setDoctorsLoadError(false);
     try {
       const res = await fetch(`${API_BASE_URL}/doctors`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (Array.isArray(data)) setDoctorsList(data);
+
+      // ✅ FIX: API wraps the array inside data.data
+      const list = data.data ?? data; // handles both { data: [] } and plain []
+      if (Array.isArray(list) && list.length > 0) {
+        setDoctorsList(list);
+      } else {
+        setDoctorsLoadError(true);
+      }
     } catch (e) {
-      console.error(e);
+      console.error('fetchDoctorsDropdown failed:', e);
+      setDoctorsLoadError(true);
     }
   }, [token, API_BASE_URL]);
 
@@ -162,6 +172,11 @@ export default function Dashboard() {
     fetchDoctorsDropdown();
   }, [fetchDoctorsDropdown]);
 
+  useEffect(() => {
+    if (token) {                    // ← only fetch once token exists
+      fetchDoctorsDropdown();
+    }
+  }, [token, fetchDoctorsDropdown]);
   // Handle Patient Registration
   const handleRegisterPatient = async (e) => {
     e.preventDefault();
@@ -219,12 +234,19 @@ export default function Dashboard() {
   const handleBookAppointment = async (e) => {
     e.preventDefault();
     setBookingMessage('');
-
+    if (doctorsList.length === 0) {
+      setBookingMessage('Error: No physicians available. Please refresh or contact support.');
+      return;
+    }
     if (!bookingPatientId || !bookingDoctorId || !bookingDate) {
       setBookingMessage('Error: All booking fields are required.');
       return;
     }
-
+    // Prevent booking in the past
+    if (new Date(bookingDate) < new Date()) {
+      setBookingMessage('Error: Appointment date cannot be in the past.');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/appointments`, {
         method: 'POST',
@@ -243,6 +265,9 @@ export default function Dashboard() {
       const data = await res.json();
       if (res.ok) {
         setBookingMessage('Success: Appointment booked successfully!');
+        setBookingPatientId('');
+        setBookingDoctorId('');
+        setBookingDate('');
         setBookingReason('');
         if (user.role === 'DOCTOR') fetchDoctorWorklist();
       } else {
@@ -292,12 +317,19 @@ export default function Dashboard() {
         },
         body: JSON.stringify({ patientId, doctorId, appointmentId })
       });
+
       const data = await res.json();
+      console.log('Queue checkin response:', data); // 👈 check shape once, then remove
+
       if (res.ok) {
-        setCheckinMessage(`Checked in! Generated Token #${data.token.tokenNumber}`);
+        // ✅ FIX: handle all common API response shapes safely
+        // ✅ Replace the fallback chain with just this:
+        const tokenNumber = data?.data?.tokenNumber ?? '—';
+        setCheckinMessage(`Checked in! Generated Token #${tokenNumber}`);
+
         if (user.role === 'DOCTOR') fetchDoctorWorklist();
       } else {
-        setCheckinMessage(`Error check-in: ${data.error}`);
+        setCheckinMessage(`Error check-in: ${data?.error ?? 'Unknown error'}`);
       }
     } catch (err) {
       setCheckinMessage(`Error: ${err.message}`);
@@ -309,28 +341,38 @@ export default function Dashboard() {
   // ==========================================
 
   const fetchDoctorWorklist = useCallback(async () => {
-    if (user?.role !== 'DOCTOR' || !token) return;
-    try {
-      const matchedDoc = doctorsList.find(d => d.userId === user.id);
-      if (!matchedDoc) return;
+  if (user?.role !== 'DOCTOR' || !token) return;
+  try {
+    const matchedDoc = doctorsList.find(d => d.userId === user.id);
+    if (!matchedDoc) return;
 
-      const [appRes, queueRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/appointments?doctorId=${matchedDoc.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`${API_BASE_URL}/queue?doctorId=${matchedDoc.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-      ]);
+    const [appRes, queueRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/appointments?doctorId=${matchedDoc.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }),
+      fetch(`${API_BASE_URL}/queue?doctorId=${matchedDoc.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+    ]);
 
-      const [appData, queueData] = await Promise.all([appRes.json(), queueRes.json()]);
+    const [appData, queueData] = await Promise.all([appRes.json(), queueRes.json()]);
 
-      if (appData.success) setDoctorAppointments(appData.appointments);
-      if (Array.isArray(queueData)) setDoctorQueue(queueData);
-    } catch (e) {
-      console.error(e);
-    }
-  }, [user, token, doctorsList, API_BASE_URL]);
+    console.log('appData:', appData);   // 👈 add once to confirm shape, then remove
+    console.log('queueData:', queueData);
+
+    // ✅ FIX: handle both { appointments: [] } and { data: [] } shapes
+    const appointments = appData?.appointments ?? appData?.data ?? [];
+    const queue = queueData?.data ?? queueData?.tokens ?? [];
+
+    setDoctorAppointments(appointments);
+    setDoctorQueue(Array.isArray(queue) ? queue : []);
+
+  } catch (e) {
+    console.error(e);
+    setDoctorAppointments([]); // ✅ never leave state as undefined on error
+    setDoctorQueue([]);
+  }
+}, [user, token, doctorsList, API_BASE_URL]);
 
   useEffect(() => {
     if (user?.role === 'DOCTOR' && doctorsList.length > 0) {
@@ -723,8 +765,26 @@ export default function Dashboard() {
                 Schedule Appointment Slot
               </h3>
 
+              {/* Error banner if doctors failed to load */}
+              {doctorsLoadError && (
+                <div className="p-3 text-sm rounded-lg mb-4 bg-rose-500/15 text-rose-500 border border-rose-500/20 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 shrink-0" />
+                    Physicians list could not be loaded.
+                  </div>
+                  <button
+                    onClick={fetchDoctorsDropdown}   /* ← retry button */
+                    className="text-xs font-bold underline hover:text-rose-600 whitespace-nowrap"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
               {bookingMessage && (
-                <div className={`p-3 text-sm rounded-lg mb-4 ${bookingMessage.startsWith('Success') ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/20' : 'bg-rose-500/15 text-rose-500 border border-rose-500/20'}`}>
+                <div className={`p-3 text-sm rounded-lg mb-4 ${bookingMessage.startsWith('Success')
+                  ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/20'
+                  : 'bg-rose-500/15 text-rose-500 border border-rose-500/20'}`}>
                   {bookingMessage}
                 </div>
               )}
@@ -743,6 +803,9 @@ export default function Dashboard() {
                       <option key={p.id} value={p.id}>{p.name} ({p.phoneNumber})</option>
                     ))}
                   </select>
+                  {patients.length === 0 && (
+                    <span className="text-xxs text-rose-400 block mt-1">No patients found. Register one in the Directory tab first.</span>
+                  )}
                   <span className="text-xxs text-slate-400 block mt-1">If client is missing, register them in the Directory tab first.</span>
                 </div>
 
@@ -750,11 +813,14 @@ export default function Dashboard() {
                   <label className="block mb-1">Select Physician*</label>
                   <select
                     required
+                    disabled={doctorsLoadError || doctorsList.length === 0}
                     value={bookingDoctorId}
                     onChange={(e) => setBookingDoctorId(e.target.value)}
-                    className="block w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50 rounded-lg text-slate-900 dark:text-slate-100 text-sm focus:outline-none"
+                    className="block w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50 rounded-lg text-slate-900 dark:text-slate-100 text-sm focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="">-- Choose Physician --</option>
+                    <option value="">
+                      {doctorsLoadError ? '⚠ Physicians unavailable' : '-- Choose Physician --'}
+                    </option>
                     {doctorsList.map(d => (
                       <option key={d.id} value={d.id}>{d.name} - {d.specialization} (${d.consultationFee})</option>
                     ))}
@@ -766,6 +832,7 @@ export default function Dashboard() {
                   <input
                     type="datetime-local"
                     required
+                    min={new Date().toISOString().slice(0, 16)} /* Prevent past dates at HTML level */
                     value={bookingDate}
                     onChange={(e) => setBookingDate(e.target.value)}
                     className="block w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50 rounded-lg text-slate-900 dark:text-slate-100 text-sm focus:outline-none"
@@ -785,7 +852,8 @@ export default function Dashboard() {
 
                 <button
                   type="submit"
-                  className="glow-btn w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-sm rounded-lg shadow-md transition-colors duration-300 mt-2"
+                  disabled={doctorsLoadError || doctorsList.length === 0 || patients.length === 0}
+                  className="glow-btn w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-sm rounded-lg shadow-md transition-colors duration-300 mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Book Appointment Slot
                 </button>
@@ -804,8 +872,8 @@ export default function Dashboard() {
 
               <div className="space-y-6">
                 <div className="p-4 rounded-xl border border-teal-500/25 bg-teal-500/10 text-slate-700 dark:text-slate-300 text-xs leading-5">
-                  <strong>Token Generation Engine Note:</strong> Direct arrivals bypass appointments. The token engine automatically fetches the current day's maximum token size and increments.
-                  <span className="block mt-1 font-bold text-rose-500 uppercase tracking-wide">Warning: Vulnerable to check-in race conditions — contact backend team.</span>
+                  <strong>Token Generation Engine Note:</strong> Direct arrivals bypass appointments.
+                  The token engine automatically fetches the current day's maximum token size and increments.
                 </div>
 
                 {/* FIX 2: Walk-in selects are now controlled React state (walkinPatientId,
@@ -842,13 +910,18 @@ export default function Dashboard() {
 
                   <button
                     onClick={() => {
+                      if (doctorsLoadError) {
+                        alert('Physicians list failed to load. Please refresh the page.');
+                        return;
+                      }
                       if (!walkinPatientId || !walkinDoctorId) {
-                        alert('Select patient and doctor first');
+                        alert('Select both a patient and a physician first.');
                         return;
                       }
                       handleQueueCheckin(walkinPatientId, walkinDoctorId);
                     }}
-                    className="glow-btn w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white dark:bg-teal-500 dark:text-slate-950 dark:hover:bg-teal-400 font-extrabold text-sm rounded-lg shadow-md transition-colors duration-300 mt-2"
+                    disabled={doctorsLoadError || doctorsList.length === 0}
+                    className="glow-btn w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white dark:bg-teal-500 dark:text-slate-950 dark:hover:bg-teal-400 font-extrabold text-sm rounded-lg shadow-md transition-colors duration-300 mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Generate Live Token
                   </button>
@@ -869,7 +942,7 @@ export default function Dashboard() {
                 Scheduled Daily Bookings List
               </h3>
 
-              {doctorAppointments.length === 0 ? (
+              {(doctorAppointments ?? []).length === 0 ? (
                 <p className="text-center py-6 text-slate-400 text-sm">No appointments scheduled for you today.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -968,7 +1041,7 @@ export default function Dashboard() {
 
                 <div className="pt-2 flex justify-between items-center text-xs">
                   <Link
-                   href={`/patients/${selectedPatientHistory.id}/history-records`}
+                    href={`/patients/${selectedPatientHistory.id}/history-records`}
                     className="text-teal-600 font-extrabold hover:underline flex items-center gap-1"
                   >
                     View Full Diagnostic Records

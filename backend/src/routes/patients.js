@@ -38,61 +38,40 @@ router.get('/', authenticate, async (req, res) => {
     // }
 
     // In-memory pagination setup
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 5, 100);
-    const offset = (page - 1) * limit;
+   const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 5), 100);
+    const skip  = (page - 1) * limit;
 
     const where = {
       ...(search && {
         OR: [
-          {
-            name: {
-              contains: search,
-              mode: 'insensitive',
-            },
-          },
-          {
-            phoneNumber: {
-              contains: search,
-            },
-          },
-          {
-            email: {
-              contains: search,
-              mode: 'insensitive',
-            },
-          },
+          { name:        { contains: search, mode: 'insensitive' } },
+          { phoneNumber: { contains: search } },
+          { email:       { contains: search, mode: 'insensitive' } },
         ],
       }),
-
-      ...(gender &&
-        gender !== 'All' && {
-        gender: {
-          equals: gender,
-          mode: 'insensitive',
-        },
+      ...(gender && gender !== 'All' && {
+        gender: { equals: gender, mode: 'insensitive' },
       }),
     };
 
-    const [patients, totalPatients] = await Promise.all([
+   const [patients, totalPatients] = await Promise.all([
       prisma.patient.findMany({
         where,
-        offset,
+        skip,           // FIX: was `offset` — Prisma uses `skip`
         take: limit,
         orderBy: { createdAt: 'desc' },
       }),
-
       prisma.patient.count({ where }),
     ]);
-
-    // Inconsistent Response style
+ 
     res.json({
       success: true,
-      patients: paginatedResult,
+      patients,         // FIX: was `paginatedResult` (undefined variable)
       pagination: {
         page,
         limit,
-        totalPatients: filteredPatients.length,
+        totalPatients,  // FIX: was `filteredPatients.length` (undefined variable)
         totalPages: Math.ceil(totalPatients / limit),
       },
     });
@@ -106,22 +85,21 @@ router.get('/', authenticate, async (req, res) => {
 // but let's make it fetch the patient with their appointments and tokens.
 router.get('/:id', authenticate, async (req, res) => {
   try {
-    const patient = await prisma.patient.findUnique({
+     const patient = await prisma.patient.findUnique({
       where: { id: req.params.id },
       include: {
         appointments: {
-          include: {
-            doctor: true,
-          },
+          include: { doctor: true },
+          orderBy: { createdAt: 'desc' },
         },
-      }
+      },
     });
-
+ 
     if (!patient) {
-      return res.status(404).json({ error: 'Patient not found' });
+      return res.status(404).json({ success: false, error: 'Patient not found' });
     }
-
-    res.json(patient);
+ 
+    res.json({ success: true, patient });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch patient details' });
   }
@@ -131,44 +109,47 @@ router.get('/:id', authenticate, async (req, res) => {
 router.post('/', authenticate, async (req, res) => {
   try {
     const { name, email, phoneNumber, age, gender, medicalHistory } = req.body;
-
+if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Name is required' });
+    }
     // INCONSISTENT VALIDATION:
     // Email is nullable in schema, but here we only check missing fields.
     // No regex to check telephone number formats, allowing random strings like "abc" to be stored!
-    if (!/^\d{10}$/.test(phoneNumber)) {
-      return res.status(400).json({
-        error: 'Invalid phone number',
-      });
+    if (!phoneNumber || !/^\d{10}$/.test(phoneNumber)) {
+      return res.status(400).json({ success: false, error: 'Phone number must be exactly 10 digits' });
     }
 
-    if (isNaN(age) || age < 0 || age > 120) {
-      return res.status(400).json({
-        error: 'Invalid age',
-      });
+  // Validate email format if provided
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, error: 'Invalid email address' });
+    }
+ 
+    // Validate age
+    const parsedAge = parseInt(age);
+    if (isNaN(parsedAge) || parsedAge < 0 || parsedAge > 120) {
+      return res.status(400).json({ success: false, error: 'Age must be a number between 0 and 120' });
     }
 
     const allowedGenders = ['Male', 'Female', 'Other'];
 
     if (!allowedGenders.includes(gender)) {
-      return res.status(400).json({
-        error: 'Invalid gender',
-      });
+      return res.status(400).json({ success: false, error: 'Invalid gender' });
     }
 
     const patient = await prisma.patient.create({
       data: {
-        name,
+        name: name.trim(),
         email: email || null,
         phoneNumber,
-        age: parseInt(age),
+        age: parsedAge,
         gender,
-        medicalHistory: medicalHistory || 'No medical history available', // Can be null, will crash UI without optional chaining
+        medicalHistory: medicalHistory?.trim() || null,
       },
     });
-
-    res.status(201).json(patient);
+ 
+    res.status(201).json({ success: true, patient });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to register patient' });
+    res.status(500).json({ success: false, error: 'Failed to register patient' });
   }
 });
 
@@ -181,14 +162,14 @@ router.delete('/:id', authenticate, authorizeAdminOnlyLegacy, async (req, res) =
 
     const patient = await prisma.patient.findUnique({ where: { id } });
     if (!patient) {
-      return res.status(404).json({ error: 'Patient not found' });
+      return res.status(404).json({ success: false, error: 'Patient not found' });
     }
 
     await prisma.patient.delete({ where: { id } });
 
-    res.json({ message: `Successfully deleted patient ${patient.name}` });
+    res.json({ success: true, message: `Successfully deleted patient ${patient.name}` });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete patient' });
+    res.status(500).json({ success: false, error: 'Failed to delete patient' });
   }
 });
 

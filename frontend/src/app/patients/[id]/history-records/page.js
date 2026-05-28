@@ -30,10 +30,12 @@ if (!patientId) return;
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
   useEffect(() => {
+    if (!patientId) return;
     let isMounted = true;
     const fetchPatientHistory = async () => {
       try {
         setLoading(true);
+         setError('');
         const token = localStorage.getItem('token');
         const res = await fetch(`${API_BASE_URL}/patients/${patientId}`, {
           headers: {
@@ -48,8 +50,10 @@ if (!patientId) return;
         const data = await res.json();
         if (!isMounted) return;
 
-        setPatient(data);
-        setAppointments(data.appointments || []);
+       // API returns { success, patient } where patient includes appointments[]
+        const p = data.patient ?? data;
+        setPatient(p);
+        setAppointments(p.appointments ?? []);
       } catch (err) {
         console.error(err);
         if (isMounted) {
@@ -62,14 +66,9 @@ if (!patientId) return;
       }
     };
 
-    if (patientId) {
-      fetchPatientHistory();
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [patientId, API_BASE_URL]);
+    fetchPatientHistory();
+    return () => { isMounted = false; };
+  }, [patientId]);
 
   if (loading) {
     return (
