@@ -35,6 +35,8 @@ model User {
   createdAt DateTime @default(now())
 
   doctor Doctor?
+  @@index([role])
+  @@index([createdAt])
 }
 
 // SCHEMA BUG: No unique constraint on (doctorId, appointmentDate).
@@ -45,8 +47,8 @@ model Doctor {
   userId          String?  @unique
   user            User?    @relation(fields: [userId], references: [id])
   name            String
-  specialization  String
-  department      String
+  specialization  String  
+  department      String  
   consultationFee Float
   experience      Int
   availableFrom   String   @default("09:00")
@@ -57,6 +59,9 @@ model Doctor {
   // Filtering/searching by these columns does full table scans at scale.
   appointments Appointment[]
   queueTokens  QueueToken[]
+   @@index([specialization])
+  @@index([department])
+  @@index([createdAt])
 }
 
 model Patient {
@@ -71,36 +76,64 @@ model Patient {
 
   appointments Appointment[]
   queueTokens  QueueToken[]
+  @@index([name])
+  @@index([phoneNumber])
+  @@index([email])
+  @@index([createdAt])
 }
 
 model Appointment {
   id              String            @id @default(uuid())
   patientId       String
   patient         Patient           @relation(fields: [patientId], references: [id])
+
   doctorId        String
   doctor          Doctor            @relation(fields: [doctorId], references: [id])
+
   appointmentDate DateTime
   reason          String            @default("")
   status          AppointmentStatus @default(PENDING)
   createdAt       DateTime          @default(now())
 
-  // MISSING INDEX: No index on (doctorId, status) — important for worklist queries.
-  // MISSING INDEX: No index on patientId foreign key.
   queueTokens QueueToken[]
+
+  @@unique([doctorId, appointmentDate])
+  // Performance indexes
+  @@index([doctorId])
+  @@index([patientId])
+  @@index([appointmentDate])
+  @@index([status])
+  @@index([doctorId, status])
+  @@index([createdAt])
 }
 
 model QueueToken {
   id            String      @id @default(uuid())
   tokenNumber   Int
+
   patientId     String
-  patient       Patient     @relation(fields: [patientId], references: [id])
+  patient       Patient      @relation(fields: [patientId], references: [id])
+
   doctorId      String
-  doctor        Doctor      @relation(fields: [doctorId], references: [id])
+  doctor        Doctor       @relation(fields: [doctorId], references: [id])
+
   appointmentId String?
   appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+
+  queueDate     DateTime
+
   status        QueueStatus @default(WAITING)
   createdAt     DateTime    @default(now())
 
+  @@unique([doctorId, queueDate, tokenNumber])
+   // Performance indexes
+  @@index([doctorId])
+  @@index([patientId])
+  @@index([appointmentId])
+  @@index([status])
+  @@index([doctorId, createdAt])
+  @@index([queueDate])
+  @@index([createdAt])
   // MISSING INDEX: No index on (doctorId, createdAt) — used in daily token aggregation.
   // MISSING INDEX: No index on status — used in frequent status filter queries.
   // SCHEMA BUG: No unique constraint on (doctorId, tokenNumber, date) —

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import {  useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { User, Lock, Activity, Eye, EyeOff } from 'lucide-react';
@@ -10,7 +10,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  
+
   // Local validation issues
   const [validationError, setValidationError] = useState('');
 
@@ -27,20 +27,30 @@ export default function Login() {
       setValidationError('Please enter your email address.');
       return;
     }
-    
+
     if (!emailRegex.test(email)) {
       setValidationError('Please enter a valid email format.');
       return;
     }
 
+    if (!password || password.length < 8) {
+      setValidationError(
+        'Password must be at least 8 characters long.'
+      );
+      return;
+    }
+
     // Notice we do NOT check password length here (even though registration requires it),
     // causing inconsistent user experiences and letting brute force slide.
-    
+
     const result = await login(email, password);
     if (!result.success) {
       setValidationError(result.error || 'Invalid credentials');
     }
   };
+
+
+
 
   return (
     <div className="flex flex-col min-h-screen justify-center items-center py-12 px-6 lg:px-8">
@@ -78,7 +88,7 @@ export default function Login() {
                 <input
                   id="email"
                   name="email"
-                  type="text" // Inconsistent: using text instead of email type to disable native validations
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all text-sm"

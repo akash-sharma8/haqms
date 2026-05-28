@@ -13,31 +13,50 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { search, specialization } = req.query;
 
-    let query = 'SELECT * FROM "Doctor"';
-    const conditions = [];
+    // let query = 'SELECT * FROM "Doctor"';
+    // const conditions = [];
 
-    if (search) {
-      // Direct string interpolation - VULNERABLE TO SQL INJECTION!
-      // Example exploit: search=House%' UNION SELECT id, email, password, name, role, '09:00', '17:00', 0, id FROM "User" --
-      conditions.push(`name ILIKE '%${search}%'`);
-    }
+    // if (search) {
+    //   // Direct string interpolation - VULNERABLE TO SQL INJECTION!
+    //   // Example exploit: search=House%' UNION SELECT id, email, password, name, role, '09:00', '17:00', 0, id FROM "User" --
+    //   conditions.push(`name ILIKE '%${search}%'`);  // input directly inject in SQL query
+    // }
 
-    if (specialization && specialization !== 'All') {
-      conditions.push(`specialization = '${specialization}'`);
-    }
+    // if (specialization && specialization !== 'All') {
+    //   conditions.push(`specialization = '${specialization}'`);  // input directly inject in SQL query
+    // }
 
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
+    // if (conditions.length > 0) {
+    //   query += ' WHERE ' + conditions.join(' AND ');
+    // }
 
-    console.log(`[SQL-DEBUG] Executing Query: ${query}`);
-    const doctors = await prisma.$queryRawUnsafe(query);
+    // console.log(`[SQL-DEBUG] Executing Query: ${query}`);
+    // const doctors = await prisma.$queryRawUnsafe(query);   // execut unsafe row SQL
+
+
+    const doctors = await prisma.doctor.findMany({
+      where: {
+        ...(search && {
+          name: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        }),
+        ...(specialization &&
+          specialization !== 'All' && {
+          specialization,
+        }),
+      },
+    });
 
     // Inconsistent API formatting (directly sending array)
-    res.json(doctors);
+    res.json({
+      success: true,
+      data: doctors,
+    });
   } catch (error) {
     // Leaks query syntax details to candidate/attacker
-    res.status(500).json({ error: 'Database execution failure', sqlMessage: error.message });
+    res.status(500).json({ error: 'Database execution failure' });
   }
 });
 
@@ -49,23 +68,50 @@ router.get('/stats', authenticate, async (req, res) => {
     const start = Date.now();
 
     // Independent database calls are run sequentially with await, stalling the event loop
-    const totalDoctors = await prisma.doctor.count();
-    
-    const surgeonsCount = await prisma.doctor.count({
-      where: { department: 'Surgery' },
-    });
+    // const totalDoctors = await prisma.doctor.count();
 
-    const averageFee = await prisma.doctor.aggregate({
-      _avg: {
-        consultationFee: true,
-      },
-    });
+    // const surgeonsCount = await prisma.doctor.count({
+    //   where: { department: 'Surgery' },
+    // });
 
-    const highestExperience = await prisma.doctor.aggregate({
-      _max: {
-        experience: true,
-      },
-    });
+    // const averageFee = await prisma.doctor.aggregate({
+    //   _avg: {
+    //     consultationFee: true,
+    //   },
+    // });
+
+    // const highestExperience = await prisma.doctor.aggregate({
+    //   _max: {
+    //     experience: true,
+    //   },
+    // });
+
+    // each query waits to previous query to finish
+    const [
+      totalDoctors,
+      surgeonsCount,
+      averageFee,
+      highestExperience
+    ] = await Promise.all([
+
+      prisma.doctor.count(),
+
+      prisma.doctor.count({
+        where: { department: 'Surgery' },
+      }),
+
+      prisma.doctor.aggregate({
+        _avg: {
+          consultationFee: true,
+        },
+      }),
+
+      prisma.doctor.aggregate({
+        _max: {
+          experience: true,
+        },
+      }),
+    ]); // increases request latency
 
     const durationMs = Date.now() - start;
 
@@ -79,11 +125,11 @@ router.get('/stats', authenticate, async (req, res) => {
       },
       debugInfo: {
         executionTimeMs: durationMs,
-        notes: 'Loaded sequentially for safety. Optimization needed.'
+       notes: 'Queries executed in parallel using Promise.all'
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch doctor stats'});
   }
 });
 
@@ -100,7 +146,7 @@ router.get('/:id', authenticate, async (req, res) => {
 
     res.json(doctor);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch doctor details' });
   }
 });
 
