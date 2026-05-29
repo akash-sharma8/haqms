@@ -1,7 +1,7 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -120,7 +120,7 @@ model QueueToken {
   appointmentId String?
   appointment   Appointment? @relation(fields: [appointmentId], references: [id])
 
-  queueDate     DateTime
+  queueDate     DateTime     @default(now())
 
   status        QueueStatus @default(WAITING)
   createdAt     DateTime    @default(now())
