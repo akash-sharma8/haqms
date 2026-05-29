@@ -4,6 +4,7 @@
   "description": "Deliberately imperfect backend for Hospital Appointment and Queue Management System",
   "main": "src/index.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "prisma:generate": "prisma generate",
