@@ -14,14 +14,14 @@ const app = express();
 
 // ✅ OPTIONS preflight must come BEFORE cors() middleware
 app.options('*', cors({
-  origin: ['http://localhost:3000', 'https://haqms-frontend.vercel.app'],
+  origin: ['http://localhost:3000', 'https://haqms-frontend1.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://haqms-frontend.vercel.app'],
+  origin: ['http://localhost:3000', 'https://haqms-frontend1.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
