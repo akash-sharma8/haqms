@@ -1,10 +1,10 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 const JWT_SECRET = process.env.JWT_SECRET
 // || 'my-super-secret-secret-key-12345!!!';   //if the .env is missing then the app use hardcoded JWT secret which is a risk , and also expiresIn is set to 365 days which is also a risk because if the token is leaked then the attacker can use it for a long time without expiring
 
